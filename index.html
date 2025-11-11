@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>매출 Q&A (Bedrock)</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; }
+      textarea { width: 100%; height: 120px; }
+      pre { background: #f6f6f6; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>매출 Q&A</h1>
+    <textarea id="q" placeholder="예) 어제 제일 잘 팔린 메뉴는?"></textarea>
+    <button id="send">질문하기</button>
+    <h3>답변</h3>
+    <pre id="answer">-</pre>
+    <script>
+      const API_URL = "https://7mx3ummxjg.execute-api.eu-west-2.amazonaws.com/llm_stages"; // ← 교체
+
+      document.getElementById("send").onclick = async () => {
+        const question = document.getElementById("q").value.trim();
+        if (!question) return;
+        document.getElementById("answer").textContent = "질문 처리 중...";
+        try {
+          const r = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question })
+          });
+          const data = await r.json();
+          document.getElementById("answer").textContent =
+            (data && data.answer) ? data.answer : JSON.stringify(data, null, 2);
+        } catch (e) {
+          document.getElementById("answer").textContent = "에러: " + e.message;
+        }
+      };
+    </script>
+  </body>
+</html>
