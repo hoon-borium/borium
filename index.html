@@ -3,37 +3,142 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Borium Q&A (Bedrock)</title>
+    <title>Dashboard by Borium AI</title>
     <style>
       body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; }
       textarea { width: 100%; height: 120px; }
       pre { background: #f6f6f6; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+      .row { margin: 16px 0; }
+      .hint { font-size: 12px; color: #666; }
+      .file-meta { font-size: 14px; color: #333; margin-top: 6px; }
+      button { padding: 8px 14px; border-radius: 8px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
     </style>
   </head>
   <body>
-    <h1>Q&A</h1>
-    <textarea id="q" placeholder="예) favourite menu?"></textarea>
-    <button id="send">Ask</button>
+    <h1>Borium AI Summary</h1>
+
+    <div class="row">
+      <textarea id="q" placeholder="e.g.) favourite menu yesterday?"></textarea>
+    </div>
+
+    <div class="row">
+      <label for="file"><strong>Add file</strong></label><br />
+      <input
+        id="file"
+        type="file"
+        accept=".xlsx,.xls,.csv,.xlsm,.xlsb,.ods"
+      />
+      <div class="hint">xlsx/CSV available</div>
+      <div id="fileMeta" class="file-meta"></div>
+    </div>
+
+    <div class="row">
+      <button id="send">Ask</button>
+      <button id="clearFile" type="button">Remove attached file</button>
+    </div>
+
     <h3>Answer</h3>
     <pre id="answer">-</pre>
+
     <script>
       const API_URL = "https://7mx3ummxjg.execute-api.eu-west-2.amazonaws.com/qa";
+      const sendBtn = document.getElementById("send");
+      const fileInput = document.getElementById("file");
+      const fileMeta = document.getElementById("fileMeta");
+      const clearBtn = document.getElementById("clearFile");
+      const answerEl = document.getElementById("answer");
 
-      document.getElementById("send").onclick = async () => {
+      fileInput.addEventListener("change", () => {
+        const f = fileInput.files?.[0];
+        if (!f) { fileMeta.textContent = ""; return; }
+        const sizeKB = (f.size / 1024).toFixed(1);
+        fileMeta.textContent = `선택됨: ${f.name} (${sizeKB} KB, ${f.type || "application/octet-stream"})`;
+      });
+
+      // 첨부 제거
+      clearBtn.onclick = () => {
+        fileInput.value = "";
+        fileMeta.textContent = "";
+      };
+
+      // ArrayBuffer -> Base64 (대용량 안전하게 chunk 변환)
+      function arrayBufferToBase64(buffer) {
+        let binary = "";
+        const bytes = new Uint8Array(buffer);
+        const chunkSize = 0x8000; // 32KB
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          const chunk = bytes.subarray(i, i + chunkSize);
+          binary += String.fromCharCode.apply(null, chunk);
+        }
+        return btoa(binary);
+      }
+
+      async function readFileAsBase64(file) {
+        const buf = await file.arrayBuffer();
+        return arrayBufferToBase64(buf);
+      }
+
+      sendBtn.onclick = async () => {
         const question = document.getElementById("q").value.trim();
-        if (!question) return;
-        document.getElementById("answer").textContent = "Processing...";
+        if (!question) {
+          alert("질문을 입력해 주세요.");
+          return;
+        }
+
+        answerEl.textContent = "Processing...";
+        sendBtn.disabled = true;
+
         try {
+          const f = fileInput.files?.[0];
+          let filePayload = null;
+
+          if (f) {
+            // 간단한 프론트 단 검증 (크기/확장자)
+            const allowed = /\.(xlsx|xls|csv|xlsm|xlsb|ods)$/i.test(f.name);
+            if (!allowed) {
+              throw new Error("허용되지 않은 파일 형식입니다. (xlsx, xls, csv, xlsm, xlsb, ods)");
+            }
+            // 필요 시 사이즈 제한 (예: 5MB)
+            const maxBytes = 5 * 1024 * 1024;
+            if (f.size > maxBytes) {
+              throw new Error("파일이 너무 큽니다. 5MB 이하의 파일을 업로드해 주세요.");
+            }
+
+            const contentBase64 = await readFileAsBase64(f);
+            filePayload = {
+              filename: f.name,
+              contentType: f.type || "application/octet-stream",
+              contentBase64
+            };
+          }
+
+          const payload = {
+            question,
+            // 백엔드에서 첨부가 optional이면 null을 보내지 말고 필드 자체를 생략하는 게 안전
+            ...(filePayload ? { file: filePayload } : {})
+          };
+
           const r = await fetch(API_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question })
+            body: JSON.stringify(payload)
           });
-          const data = await r.json();
-          document.getElementById("answer").textContent =
-            (data && data.answer) ? data.answer : JSON.stringify(data, null, 2);
+
+          // 응답 처리
+          const contentType = r.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const data = await r.json();
+            answerEl.textContent =
+              (data && data.answer) ? data.answer : JSON.stringify(data, null, 2);
+          } else {
+            const text = await r.text();
+            answerEl.textContent = text;
+          }
         } catch (e) {
-          document.getElementById("answer").textContent = "에러: " + e.message;
+          answerEl.textContent = "에러: " + e.message;
+        } finally {
+          sendBtn.disabled = false;
         }
       };
     </script>
