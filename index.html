@@ -91,7 +91,10 @@
 
         try {
           const f = fileInput.files?.[0];
-          let filePayload = null;
+
+          // 👉 Lambda에서 기대하는 형태: file_name / file_base64
+          let file_name = null;
+          let file_base64 = null;
 
           if (f) {
             // 간단한 프론트 단 검증 (크기/확장자)
@@ -106,17 +109,15 @@
             }
 
             const contentBase64 = await readFileAsBase64(f);
-            filePayload = {
-              filename: f.name,
-              contentType: f.type || "application/octet-stream",
-              contentBase64
-            };
+            file_name = f.name;
+            file_base64 = contentBase64;
           }
 
+          // 🔴 기존: { question, file: { filename, contentBase64, ... } }
+          // 🟢 수정: { question, file_name, file_base64 }
           const payload = {
             question,
-            // 백엔드에서 첨부가 optional이면 null을 보내지 말고 필드 자체를 생략하는 게 안전
-            ...(filePayload ? { file: filePayload } : {})
+            ...(file_name && file_base64 ? { file_name, file_base64 } : {})
           };
 
           const r = await fetch(API_URL, {
@@ -125,7 +126,6 @@
             body: JSON.stringify(payload)
           });
 
-          // 응답 처리
           const contentType = r.headers.get("content-type") || "";
           if (contentType.includes("application/json")) {
             const data = await r.json();
