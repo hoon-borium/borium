@@ -5,21 +5,74 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Dashboard by Borium AI</title>
     <style>
-      body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; }
-      textarea { width: 100%; height: 120px; }
-      pre { background: #f6f6f6; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
-      .row { margin: 16px 0; }
-      .hint { font-size: 12px; color: #666; }
-      .file-meta { font-size: 14px; color: #333; margin-top: 6px; }
-      button { padding: 8px 14px; border-radius: 8px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
-      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 900px;
+        margin: 40px auto;
+        padding: 0 12px;
+      }
+      textarea {
+        width: 100%;
+        height: 120px;
+      }
+      pre {
+        background: #f6f6f6;
+        padding: 12px;
+        border-radius: 8px;
+        white-space: pre-wrap;
+      }
+      .row {
+        margin: 16px 0;
+      }
+      .hint {
+        font-size: 12px;
+        color: #666;
+      }
+      .file-meta {
+        font-size: 14px;
+        color: #333;
+        margin-top: 6px;
+      }
+      button {
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+        background: #fff;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .charts-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 24px;
+        margin-top: 16px;
+      }
+      .chart-card {
+        background: #fafafa;
+        border-radius: 10px;
+        padding: 12px;
+        border: 1px solid #eee;
+      }
+      .chart-card h4 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        color: #333;
+      }
     </style>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body>
     <h1>Borium AI Summary</h1>
 
     <div class="row">
-      <textarea id="q" placeholder="e.g.) favourite menu yesterday?"></textarea>
+      <textarea
+        id="q"
+        placeholder="예) 첨부된 데이터를 기반으로 종합 판매 성과 분석 보고서를 영어로 작성해줘"
+      ></textarea>
     </div>
 
     <div class="row">
@@ -38,35 +91,63 @@
       <button id="clearFile" type="button">Remove attached file</button>
     </div>
 
-    <h3>Answer</h3>
+    <h3>Answer (Always in English)</h3>
     <pre id="answer">-</pre>
 
+    <h3>Charts</h3>
+    <div class="charts-grid">
+      <div class="chart-card">
+        <h4>Daily Total Sales</h4>
+        <canvas id="dailyChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h4>Weekly Total Sales</h4>
+        <canvas id="weeklyChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h4>Day-of-Week: Lunch vs Dinner</h4>
+        <canvas id="dowLunchDinnerChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h4>Day-of-Week: DineIn vs Takeaway</h4>
+        <canvas id="dowDineTakeChart"></canvas>
+      </div>
+    </div>
+
     <script>
-      const API_URL = "https://7mx3ummxjg.execute-api.eu-west-2.amazonaws.com/qa";
+      const API_URL =
+        "https://7mx3ummxjg.execute-api.eu-west-2.amazonaws.com/qa";
+
       const sendBtn = document.getElementById("send");
       const fileInput = document.getElementById("file");
       const fileMeta = document.getElementById("fileMeta");
       const clearBtn = document.getElementById("clearFile");
       const answerEl = document.getElementById("answer");
 
+      // Chart instances (for destroy & re-render)
+      let dailyChart, weeklyChart, dowLunchDinnerChart, dowDineTakeChart;
+
       fileInput.addEventListener("change", () => {
         const f = fileInput.files?.[0];
-        if (!f) { fileMeta.textContent = ""; return; }
+        if (!f) {
+          fileMeta.textContent = "";
+          return;
+        }
         const sizeKB = (f.size / 1024).toFixed(1);
-        fileMeta.textContent = `선택됨: ${f.name} (${sizeKB} KB, ${f.type || "application/octet-stream"})`;
+        fileMeta.textContent = `선택됨: ${f.name} (${sizeKB} KB, ${
+          f.type || "application/octet-stream"
+        })`;
       });
 
-      // 첨부 제거
       clearBtn.onclick = () => {
         fileInput.value = "";
         fileMeta.textContent = "";
       };
 
-      // ArrayBuffer -> Base64 (대용량 안전하게 chunk 변환)
       function arrayBufferToBase64(buffer) {
         let binary = "";
         const bytes = new Uint8Array(buffer);
-        const chunkSize = 0x8000; // 32KB
+        const chunkSize = 0x8000;
         for (let i = 0; i < bytes.length; i += chunkSize) {
           const chunk = bytes.subarray(i, i + chunkSize);
           binary += String.fromCharCode.apply(null, chunk);
@@ -79,58 +160,202 @@
         return arrayBufferToBase64(buf);
       }
 
+      function renderDailyChart(daily) {
+        const ctx = document.getElementById("dailyChart").getContext("2d");
+        if (dailyChart) dailyChart.destroy();
+        if (!Array.isArray(daily) || daily.length === 0) return;
+
+        const labels = daily.map((d) => d.date);
+        const data = daily.map((d) => d.gross);
+
+        dailyChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Gross Sales",
+                data,
+                fill: false,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            scales: {
+              x: { ticks: { maxRotation: 45, minRotation: 45 } },
+            },
+          },
+        });
+      }
+
+      function renderWeeklyChart(weekly) {
+        const ctx = document.getElementById("weeklyChart").getContext("2d");
+        if (weeklyChart) weeklyChart.destroy();
+        if (!Array.isArray(weekly) || weekly.length === 0) return;
+
+        const labels = weekly.map((w) => w.label);
+        const data = weekly.map((w) => w.gross);
+
+        weeklyChart = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Gross Sales",
+                data,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+          },
+        });
+      }
+
+      function renderDowLunchDinnerChart(dows) {
+        const ctx = document
+          .getElementById("dowLunchDinnerChart")
+          .getContext("2d");
+        if (dowLunchDinnerChart) dowLunchDinnerChart.destroy();
+        if (!Array.isArray(dows) || dows.length === 0) return;
+
+        const labels = dows.map((d) => d.day);
+        const lunch = dows.map((d) => d.lunch_mean);
+        const dinner = dows.map((d) => d.dinner_mean);
+
+        dowLunchDinnerChart = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Lunch",
+                data: lunch,
+              },
+              {
+                label: "Dinner",
+                data: dinner,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            scales: {
+              x: { stacked: false },
+              y: { beginAtZero: true },
+            },
+          },
+        });
+      }
+
+      function renderDowDineTakeChart(dows) {
+        const ctx = document
+          .getElementById("dowDineTakeChart")
+          .getContext("2d");
+        if (dowDineTakeChart) dowDineTakeChart.destroy();
+        if (!Array.isArray(dows) || dows.length === 0) return;
+
+        const labels = dows.map((d) => d.day);
+        const dinein = dows.map((d) => d.dinein_mean);
+        const takeaway = dows.map((d) => d.takeaway_mean);
+
+        dowDineTakeChart = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "DineIn",
+                data: dinein,
+              },
+              {
+                label: "Takeaway",
+                data: takeaway,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            scales: {
+              x: { stacked: false },
+              y: { beginAtZero: true },
+            },
+          },
+        });
+      }
+
+      function renderChartsFromAnalytics(analytics) {
+        if (!analytics) return;
+        renderDailyChart(analytics.daily || []);
+        renderWeeklyChart(analytics.weekly || []);
+        renderDowLunchDinnerChart(analytics.day_of_week || []);
+        renderDowDineTakeChart(analytics.day_of_week || []);
+      }
+
       sendBtn.onclick = async () => {
         const question = document.getElementById("q").value.trim();
+        const f = fileInput.files?.[0];
+
         if (!question) {
           alert("질문을 입력해 주세요.");
           return;
         }
+        if (!f) {
+          alert("CSV/xlsx 파일을 첨부해 주세요.");
+          return;
+        }
 
-        answerEl.textContent = "Processing...";
         sendBtn.disabled = true;
+        answerEl.textContent = "Processing...";
+
+        // 차트 초기화
+        renderChartsFromAnalytics(null);
 
         try {
-          const f = fileInput.files?.[0];
-
-          // 👉 Lambda에서 기대하는 형태: file_name / file_base64
-          let file_name = null;
-          let file_base64 = null;
-
-          if (f) {
-            // 간단한 프론트 단 검증 (크기/확장자)
-            const allowed = /\.(xlsx|xls|csv|xlsm|xlsb|ods)$/i.test(f.name);
-            if (!allowed) {
-              throw new Error("허용되지 않은 파일 형식입니다. (xlsx, xls, csv, xlsm, xlsb, ods)");
-            }
-            // 필요 시 사이즈 제한 (예: 5MB)
-            const maxBytes = 5 * 1024 * 1024;
-            if (f.size > maxBytes) {
-              throw new Error("파일이 너무 큽니다. 5MB 이하의 파일을 업로드해 주세요.");
-            }
-
-            const contentBase64 = await readFileAsBase64(f);
-            file_name = f.name;
-            file_base64 = contentBase64;
+          const allowed =
+            /\.(xlsx|xls|csv|xlsm|xlsb|ods)$/i.test(f.name);
+          if (!allowed) {
+            throw new Error(
+              "허용되지 않은 파일 형식입니다. (xlsx, xls, csv, xlsm, xlsb, ods)"
+            );
           }
 
-          // 🔴 기존: { question, file: { filename, contentBase64, ... } }
-          // 🟢 수정: { question, file_name, file_base64 }
+          const maxBytes = 5 * 1024 * 1024;
+          if (f.size > maxBytes) {
+            throw new Error(
+              "파일이 너무 큽니다. 5MB 이하의 파일을 업로드해 주세요."
+            );
+          }
+
+          const file_name = f.name;
+          const file_base64 = await readFileAsBase64(f);
+
           const payload = {
             question,
-            ...(file_name && file_base64 ? { file_name, file_base64 } : {})
+            file_name,
+            file_base64,
           };
 
           const r = await fetch(API_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
           });
 
           const contentType = r.headers.get("content-type") || "";
           if (contentType.includes("application/json")) {
             const data = await r.json();
-            answerEl.textContent =
-              (data && data.answer) ? data.answer : JSON.stringify(data, null, 2);
+            const ans =
+              data.answer_markdown ||
+              data.answer ||
+              JSON.stringify(data, null, 2);
+
+            answerEl.textContent = ans;
+
+            // analytics 기반 차트 렌더링
+            renderChartsFromAnalytics(data.analytics);
           } else {
             const text = await r.text();
             answerEl.textContent = text;
